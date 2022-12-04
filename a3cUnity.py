@@ -8,10 +8,13 @@ import torch.multiprocessing as mp
 import matplotlib.pyplot as plt
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.envs.unity_gym_env import UnityToGymWrapper
+from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
 
 import numpy as np
 import gym
 from collections import deque
+
+engineConfigChannel = EngineConfigurationChannel()
 
 class Memory():
     def __init__(self):
@@ -230,7 +233,8 @@ class Actor():
 def main():
 
     # env = gym.make("CartPole-v0")
-    unityEnv = UnityEnvironment(file_name="build/Simple_Circuit_Road", no_graphics=False, worker_id=4)
+    unityEnv = UnityEnvironment(file_name="build/Simple_Circuit_Road", no_graphics=False, worker_id=4, side_channels=[engineConfigChannel])
+    engineConfigChannel.set_configuration_parameters(time_scale=20, target_frame_rate=-1, capture_frame_rate=60)
     env = UnityToGymWrapper(unityEnv, flatten_branched=True)
     agent = A3C(env, actor_num=mp.cpu_count(), actor_ratio=0.2, gamma=0.99, learning_rate=1e-3)
     
