@@ -5,16 +5,19 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.multiprocessing as mp
+import threading as th
 import matplotlib.pyplot as plt
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.envs.unity_gym_env import UnityToGymWrapper
 from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
+# from baselines.bench import Monitor
 
 import numpy as np
 import gym
 from collections import deque
 
 engineConfigChannel = EngineConfigurationChannel()
+
 
 class Memory():
     def __init__(self):
@@ -53,13 +56,13 @@ class A3CNet(nn.Module):
         return value, policy
     
 class A3C():
-    def __init__(self, env, actor_num, actor_ratio, entropy_beta=0.01, gamma=0.95, learning_rate=1e-3, t_max=20):
+    def __init__(self, actor_num, actor_ratio, entropy_beta=0.01, gamma=0.95, learning_rate=1e-3, t_max=20):
         super(A3C, self).__init__()
         # self.env = env
-        self.env = env
         self.actor_num = actor_num
-        self.state_num = self.env.observation_space.shape[0]
-        self.action_num = self.env.action_space.n
+        self.actor_id = 1
+        self.state_num = 1 # self.env.observation_space.shape[0]
+        self.action_num = 9 # self.env.action_space.n
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
@@ -76,31 +79,48 @@ class A3C():
         self.entropy_beta = entropy_beta
         
     def total_run(self):
-        Actors = [Actor(self.env, self.actor_ratio, self.entropy_beta, self.gamma, self.a3c_net, self.optimizer, self.t_max)
-                  for _ in range(self.actor_num)]
+        Actors = [Actor(self.actor_id, self.actor_ratio, self.entropy_beta, self.gamma, self.a3c_net, self.optimizer, self.t_max)
+                  for self.actor_id in range(self.actor_num)]
 
         # For GPU processing
         mp.set_start_method('spawn')
         
+        
+
         # Multi processing
+        # processes = []
+        # for actor in Actors:
+        #     print("Process ID:", actor, " started...")
+        #     process = mp.Process(target=actor.run)
+        #     process.start()
+        #     processes.append(process)
+            
+        
+        # for p in processes:
+        #     p.join()
+
+        # Threading processing
         processes = []
         for actor in Actors:
-            print("Process ID:", actor, " started...")
-            process = mp.Process(target=actor.run())
+            process = th.Thread(target=actor.run)
             process.start()
             processes.append(process)
-            
         
         for p in processes:
             p.join()
+
+
+
             
         
 class Actor():
-    def __init__(self, env, actor_ratio, entropy_beta, gamma, a3c_net, optimizer, t_max):
+    def __init__(self, actor_id, actor_ratio, entropy_beta, gamma, a3c_net, optimizer, t_max):
         super(Actor, self).__init__()
-        self.env = env
-        self.state_num = self.env.observation_space.shape[0]
-        self.action_num = self.env.action_space.n
+        unityEnv = UnityEnvironment(file_name="build/Simple_Circuit_Road", no_graphics=False, worker_id=actor_id+10, side_channels=[engineConfigChannel])
+        engineConfigChannel.set_configuration_parameters(time_scale=20, target_frame_rate=-1, capture_frame_rate=60)
+        self.env = UnityToGymWrapper(unityEnv, flatten_branched=True)
+        self.state_num = 1 # self.env.observation_space.shape[0]
+        self.action_num = 9 # self.env.action_space.n
                
         # Torch
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -233,14 +253,13 @@ class Actor():
 def main():
 
     # env = gym.make("CartPole-v0")
-    unityEnv = UnityEnvironment(file_name="build/Simple_Circuit_Road", no_graphics=False, worker_id=4, side_channels=[engineConfigChannel])
-    engineConfigChannel.set_configuration_parameters(time_scale=20, target_frame_rate=-1, capture_frame_rate=60)
-    env = UnityToGymWrapper(unityEnv, flatten_branched=True)
-    agent = A3C(env, actor_num=mp.cpu_count(), actor_ratio=0.2, gamma=0.99, learning_rate=1e-3)
+    # unityEnv = UnityEnvironment(file_name="build/Simple_Circuit_Road", no_graphics=True, worker_id=4, side_channels=[engineConfigChannel])
+    # env = UnityToGymWrapper(unityEnv, flatten_branched=True)
+
+    agent = A3C(actor_num=4, actor_ratio=0.2, gamma=0.99, learning_rate=1e-3)
     
     agent.total_run()
     torch.save(agent, "model.pt")
-    unityEnv.close()
 
 if __name__ == '__main__':
     main()
